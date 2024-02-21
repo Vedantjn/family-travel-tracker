@@ -1,20 +1,20 @@
-import express from "express";
-import bodyParser from "body-parser";
-import pg from "pg";
+import express from 'express';
+import pkg from 'pg';
+const { Pool } = pkg;
+
+// import { Pool } from 'pg';
 
 const app = express();
-const port = 3000;
+app.use(express.json());
 
-const db = new pg.Client({
+const itemsPool = new Pool({
   user: "postgres",
   host: "localhost",
   database: "world",
   password: "1234567",
   port: 5432,
 });
-db.connect();
 
-app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static("public"));
 
 let currentUserId = 1;
@@ -24,27 +24,39 @@ let users = [
   { id: 2, name: "Jack", color: "powderblue" },
 ];
 
-async function checkVisisted() {
-  const result = await db.query(
-    "SELECT country_code FROM visited_countries JOIN users ON users.id = user_id WHERE user_id = $1; ",
-    [currentUserId]
-  );
-  let countries = [];
-  result.rows.forEach((country) => {
-    countries.push(country.country_code);
-  });
-  return countries;
+async function checkVisited() {
+  try {
+    const result = await itemsPool.query(
+      "SELECT country_code FROM visited_countries WHERE user_id = $1",
+      [currentUserId]
+    );
+    return result.rows.map(row => row.country_code);
+  } catch (error) {
+    console.log(error);
+    return [];
+  }
 }
 
 async function getCurrentUser() {
-  const result = await db.query("SELECT * FROM users");
-  users = result.rows;
-  return users.find((user) => user.id == currentUserId);
+  try {
+    const result = await itemsPool.query("SELECT * FROM users");
+    users = result.rows;
+    return users.find((user) => user.id == currentUserId);
+  } catch (error) {
+    console.log(error);
+    return null;
+  }
 }
 
 app.get("/", async (req, res) => {
-  const countries = await checkVisisted();
+  const countries = await checkVisited();
   const currentUser = await getCurrentUser();
+  
+  if (!currentUser) {
+    res.status(404).send("User not found");
+    return;
+  }
+
   res.render("index.ejs", {
     countries: countries,
     total: countries.length,
@@ -52,13 +64,15 @@ app.get("/", async (req, res) => {
     color: currentUser.color,
   });
 });
+
+
 app.post("/add", async (req, res) => {
   const input = req.body["country"];
   const currentUser = await getCurrentUser();
 
   try {
-    const result = await db.query(
-      "SELECT country_code FROM countries WHERE LOWER(country_name) LIKE '%' || $1 || '%';",
+    const result = await itemsPool.query(
+      "SELECT country_code FROM countries WHERE LOWER(country_name) LIKE '%' || $1 || '%'",
       [input.toLowerCase()]
     );
 
@@ -66,22 +80,22 @@ app.post("/add", async (req, res) => {
     let countryCode = data.country_code;
 
     if (countryCode === "IO") {
-
       countryCode = "IN";
-
     }
 
     try {
-      await db.query(
+      await itemsPool.query(
         "INSERT INTO visited_countries (country_code, user_id) VALUES ($1, $2)",
         [countryCode, currentUserId]
       );
       res.redirect("/");
     } catch (err) {
       console.log(err);
+      res.status(500).send("Error adding country to visited list");
     }
   } catch (err) {
     console.log(err);
+    res.status(500).send("Error finding country");
   }
 });
 
@@ -98,17 +112,23 @@ app.post("/new", async (req, res) => {
   const name = req.body.name;
   const color = req.body.color;
 
-  const result = await db.query(
-    "INSERT INTO users (name, color) VALUES($1, $2) RETURNING *;",
-    [name, color]
-  );
+  try {
+    const result = await itemsPool.query(
+      "INSERT INTO users (name, color) VALUES($1, $2) RETURNING *",
+      [name, color]
+    );
 
-  const id = result.rows[0].id;
-  currentUserId = id;
+    const id = result.rows[0].id;
+    currentUserId = id;
 
-  res.redirect("/");
+    res.redirect("/");
+  } catch (error) {
+    console.log(error);
+    res.status(500).send("Error adding new user");
+  }
 });
 
+const port = process.env.PORT || 3000;
 app.listen(port, () => {
-  console.log(`Server running on http://localhost:${port}`);
+  console.log(`Server running on port ${port}`);
 });
