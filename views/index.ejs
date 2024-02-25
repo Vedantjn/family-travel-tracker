@@ -388,18 +388,10 @@
   <h2 class="total-count">Total Countries: <%=total%>
   </h2>
   <script>
-
-
-    let country_codes = "<%= countries %>".split(",");
-    console.log(typeof ("<%= countries %>"));
-
+    const country_codes = "<%= countries %>".split(",")
+    console.log(typeof ("<%= countries %>"))
     country_codes.forEach(code => {
-      var component = document.getElementById(code);
-      console.log(code,component)
-      if(component) {
-        component.style.fill ="<%= color %>"
-      }
- 
+      document.getElementById(code).style.fill = "<%= color %>"
     });
   </script>
 </body>
